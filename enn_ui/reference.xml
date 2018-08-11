@@ -1,0 +1,7 @@
+<reference>
+    <device name="Canon PowerShot G7 (PTP mode)" script="chdkptp:propset_1" />
+
+    <script name="chdkptp_propset_1">
+        <call name="zoom" template="-eluar set_zoom({zoom})" />
+    </script>
+</reference>
