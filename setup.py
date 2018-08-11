@@ -17,7 +17,8 @@ name="enn_ui",
                       "https://github.com/galencm/machinic-lings/tarball/master#egg=lings-0.1"],
     entry_points = {'console_scripts': ['ma-ui-enn = enn_ui.enn_ui:main',
                                         'enn-ui = enn_ui.enn_ui:main',
-                                        'enn-db = enn_ui.reference:main'
+                                        'enn-db = enn_ui.reference:main',
+                                        'enn-env = enn_ui.env_ui:main'
                                        ],
                             },
 )
