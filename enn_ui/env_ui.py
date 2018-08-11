@@ -52,6 +52,8 @@ class EnvApp(App):
     def update_env_values(self):
         env_values = redis_conn.hgetall(self.env_key)
         self.env_container.clear_widgets()
+        info_label = Label(text="{}".format(self.env_key))
+        self.env_container.add_widget(info_label)
         for k, v in env_values.items():
             row = BoxLayout()
             key = Label(text=str(k))
