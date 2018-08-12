@@ -315,7 +315,11 @@ class DevApp(App):
         for device in [child.device for child in self.device_container.children]:
             dev =  etree.Element("device")
             for k, v in device.details.items():
-                dev.set(k, v)
+                try:
+                    dev.set(k, v)
+                except TypeError:
+                    # scripts None
+                    pass
 
             settings =  etree.Element("settings")
             for k, v in device.settings.items():
