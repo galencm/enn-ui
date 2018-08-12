@@ -7,6 +7,7 @@
 import argparse
 import atexit
 import threading
+import subprocess
 import time
 import attr
 import redis
@@ -22,6 +23,7 @@ from kivy.clock import Clock
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
+from kivy.animation import Animation
 
 r_ip, r_port = data_models.service_connection()
 binary_r = redis.StrictRedis(host=r_ip, port=r_port)
@@ -31,20 +33,32 @@ redis_conn = redis.StrictRedis(host=r_ip, port=r_port, decode_responses=True)
 class Device(object):
     connected = attr.ib(default=False)
     details = attr.ib(default=attr.Factory(dict))
+    settings = attr.ib(default=attr.Factory(dict))
 
 class DeviceItem(BoxLayout):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, app=None, **kwargs):
         self.device = Device()
+        self.app = app
+        # by default open previewed with dzz
+        self.default_view_call = "dzz-ui --size=1500x900 -- --db-host {host} --db-port {port} --db-key {thing} --db-key-field {thing_field}"
         super(DeviceItem, self).__init__()
         self.details_container = BoxLayout(orientation="vertical")
+        self.settings_widgets = []
         self.add_widget(self.details_container)
 
     def update_details(self):
         self.details_container.clear_widgets()
+        self.settings_widgets = []
         connected_color = [.5, .5, .5, 1]
+        connected_text = "not connected"
         if self.device.connected:
             connected_color = [0, 1, 0, 1]
-        self.details_container.add_widget(Button(background_color=connected_color, height=30, size_hint_y=None))
+            connected_text = "connected"
+        connected_button = Button(text=connected_text, background_color=connected_color, height=30, size_hint_y=None)
+        connected_button.bind(on_press=lambda widget: self.app.update_devices())
+        self.details_container.add_widget(connected_button)
+
+        # device information
         for k, v in self.device.details.items():
             row = BoxLayout(height=30, size_hint_y=None)
             key = Label(text=str(k))
@@ -52,6 +66,81 @@ class DeviceItem(BoxLayout):
             row.add_widget(key)
             row.add_widget(value)
             self.details_container.add_widget(row)
+
+        # add adjustable values from the db
+        # the db material is generated from xml
+        # see enn-db and reference.xml
+        try:
+            # incorrect keys will be stored/reloaded from xml
+            if not "scripts" in self.device.details:
+                self.device.details["scripts"] = redis_conn.hget("device:script_lookup", self.device.details["name"])
+
+            reference = redis_conn.hgetall("scripts:{}".format(self.device.details["scripts"]))
+            for attribute, _ in reference.items():
+                row = BoxLayout(height=30, size_hint_y=None)
+                key = Label(text=str(attribute))
+                value = TextInput(multiline=False)
+                try:
+                    value.text = self.device.settings[attribute]
+                except KeyError as ex:
+                    print(ex)
+                    pass
+                value.bind(on_text_validate=lambda widget, attribute=attribute: self.set_device_setting(attribute, widget.text, widget))
+                # store to get set_device_setting before preview
+                value.attribute = attribute
+                self.settings_widgets.append(value)
+                row.add_widget(key)
+                row.add_widget(value)
+                self.details_container.add_widget(row)
+        except Exception as ex:
+            print(ex)
+
+        # preview
+        self.view_call_input = TextInput(text=self.default_view_call, multiline=False, height=30, size_hint_y=None)
+        self.view_call_input.bind(on_text_validate=lambda widget: check_call())
+        self.details_container.add_widget(self.view_call_input)
+        preview_button = Button(text="preview", background_color=connected_color, height=30, size_hint_y=None)
+        preview_button.bind(on_press=lambda widget: self.preview())
+        self.details_container.add_widget(preview_button)
+
+    def set_device_setting(self, attribute, value, widget=None):
+        self.device.settings[attribute] = value
+        if widget:
+            current_background = [1, 1, 1, 1]
+            anim = Animation(background_color=[0,1,0,1], duration=0.5) + Animation(background_color=current_background, duration=0.5)
+            anim.start(widget)
+
+    def check_call(self):
+        if not self.view_call_input.text:
+            self.view_call_input.text = self.default_view_call
+
+    def preview(self):
+        for widget in self.settings_widgets:
+            self.set_device_setting(widget.attribute, widget.text, widget)
+        # apply settings
+        for setting, setting_value in self.device.settings.items():
+            if setting_value:
+                try:
+                    self.app.device_classes[self.device.details["discovery"]].set_setting(self.device.details, setting, setting_value)
+                except Exception as ex:
+                    print(ex)
+        # call may result in: [-108] File not found
+        # if usb address has changed
+        #
+        # update devices again before calling
+        self.app.update_devices()
+        slurped = self.app.device_classes[self.device.details["discovery"]].slurp(device=self.device.details)
+
+        view_call = self.view_call_input.text
+        for thing in slurped:
+            call_dict = {
+                        "host" : self.app.db_host,
+                        "port" : self.app.db_port,
+                        "thing" : thing,
+                        "thing_field" : "binary_key"
+                        }
+            view_call = view_call.format_map(call_dict)
+            subprocess.Popen(view_call.split(" "))
 
 class DevApp(App):
     def __init__(self, *args, **kwargs):
@@ -125,7 +214,7 @@ class DevApp(App):
 
         for device in discovered:
             if not device["uid"] in [child.device.details["uid"] for child in self.device_container.children]:
-                device_widget = DeviceItem()
+                device_widget = DeviceItem(app=self)
                 device_widget.device.details = device
                 device_widget.device.connected = True
                 device_widget.update_details()
@@ -134,6 +223,8 @@ class DevApp(App):
                 for child in self.device_container.children:
                     if device["uid"]  == child.device.details["uid"]:
                         child.device.connected = True
+                        # update details since address may have changed
+                        child.device.details.update(device)
                         child.update_details()
 
     def update_env_values(self):
@@ -150,8 +241,10 @@ class DevApp(App):
         xml = etree.parse(file)
         for session in xml.xpath('//session'):
             for device in session.xpath('//device'):
-                device_widget = DeviceItem()
+                device_widget = DeviceItem(app=self)
                 device_widget.device.details = device.attrib
+                for settings in session.xpath('//settings'):
+                    device_widget.device.settings = settings.attrib
                 device_widget.update_details()
                 self.device_container.add_widget(device_widget)
 
@@ -171,6 +264,11 @@ class DevApp(App):
             dev =  etree.Element("device")
             for k, v in device.details.items():
                 dev.set(k, v)
+
+            settings =  etree.Element("settings")
+            for k, v in device.settings.items():
+                settings.set(k, v)
+            dev.append(settings)
             session.append(dev)
         machine_root = etree.ElementTree(machine)
 
