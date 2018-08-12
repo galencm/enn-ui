@@ -35,12 +35,22 @@ class Device(object):
     details = attr.ib(default=attr.Factory(dict))
     settings = attr.ib(default=attr.Factory(dict))
 
+    def settings_prefixed(self, prefix):
+        settings = {}
+        # include scripts
+        settings["{}{}".format(prefix, "scripts")] = self.details["scripts"]
+        for k, v in self.settings.items():
+            settings["{}{}".format(prefix, k)] = v
+        return settings
+
 class DeviceItem(BoxLayout):
     def __init__(self, *args, app=None, **kwargs):
         self.device = Device()
         self.app = app
         # by default open previewed with dzz
         self.default_view_call = "dzz-ui --size=1500x900 -- --db-host {host} --db-port {port} --db-key {thing} --db-key-field {thing_field}"
+        self.state_key_template = "device:state:{uid}"
+        self.setting_prefix = "SETTING_"
         super(DeviceItem, self).__init__()
         self.details_container = BoxLayout(orientation="vertical")
         self.settings_widgets = []
@@ -98,10 +108,51 @@ class DeviceItem(BoxLayout):
         # preview
         self.view_call_input = TextInput(text=self.default_view_call, multiline=False, height=30, size_hint_y=None)
         self.view_call_input.bind(on_text_validate=lambda widget: check_call())
-        self.details_container.add_widget(self.view_call_input)
         preview_button = Button(text="preview", background_color=connected_color, height=30, size_hint_y=None)
         preview_button.bind(on_press=lambda widget: self.preview())
+
+        get_state_button = Button(text="get state", height=30, size_hint_y=None)
+        set_state_button = Button(text="set state", height=30, size_hint_y=None)
+        get_state_button.bind(on_press=lambda widget: self.get_state())
+        set_state_button.bind(on_press=lambda widget: self.set_state())
+        get_set_state_row = BoxLayout(height=30, size_hint_y=None)
+        load_state_from_row = BoxLayout(height=30, size_hint_y=None)
+        load_state_from_button = Button(text="load state from", height=30, size_hint_y=None)
+        load_state_from_input = TextInput(hint_text="db key", multiline=False, height=30, size_hint_y=None)
+        load_state_from_button.bind(on_press=lambda widget, state_source=load_state_from_input: self.load_state(load_state_from_input.text))
+        get_set_state_row.add_widget(get_state_button)
+        get_set_state_row.add_widget(set_state_button)
+        self.details_container.add_widget(get_set_state_row)
+        load_state_from_row.add_widget(load_state_from_button)
+        load_state_from_row.add_widget(load_state_from_input)
+        self.details_container.add_widget(load_state_from_row)
+        self.details_container.add_widget(self.view_call_input)
         self.details_container.add_widget(preview_button)
+
+    def get_state(self):
+        state = redis_conn.hgetall(self.state_key_template.format_map(self.device.details))
+        if state:
+            self.device.settings = state
+        else:
+            self.device.settings = {}
+        self.update_details()
+
+    def set_state(self):
+        redis_conn.hmset(self.state_key_template.format_map(self.device.details), self.device.settings)
+
+    def load_state(self, state_source):
+        # try to load state from fields of a glworb
+        possible_state_source_fields = redis_conn.hgetall(state_source)
+        # only use if correct scripts
+        try:
+            if possible_state_source_fields["{}scripts".format(self.setting_prefix)] == self.device.details["scripts"]:
+                for k, v in possible_state_source_fields.items():
+                    if k.startswith(self.setting_prefix):
+                        # remove prefix before adding
+                        self.device.settings[k[len(self.setting_prefix):]] = v
+                self.update_details()
+        except KeyError:
+            pass
 
     def set_device_setting(self, attribute, value, widget=None):
         self.device.settings[attribute] = value
@@ -129,7 +180,8 @@ class DeviceItem(BoxLayout):
         #
         # update devices again before calling
         self.app.update_devices()
-        slurped = self.app.device_classes[self.device.details["discovery"]].slurp(device=self.device.details)
+        metadata = self.device.settings_prefixed(self.setting_prefix)
+        slurped = self.app.device_classes[self.device.details["discovery"]].slurp(device=self.device.details, metadata=metadata)
 
         view_call = self.view_call_input.text
         for thing in slurped:
