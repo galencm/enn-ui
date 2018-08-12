@@ -108,7 +108,7 @@ class DeviceItem(BoxLayout):
         # preview
         self.view_call_input = TextInput(text=self.default_view_call, multiline=False, height=30, size_hint_y=None)
         self.view_call_input.bind(on_text_validate=lambda widget: check_call())
-        preview_button = Button(text="preview", background_color=connected_color, height=30, size_hint_y=None)
+        preview_button = Button(text="preview", background_color=connected_color, height=60, size_hint_y=None)
         preview_button.bind(on_press=lambda widget: self.preview())
 
         get_state_button = Button(text="get state", height=30, size_hint_y=None)
