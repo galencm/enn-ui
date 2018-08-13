@@ -16,6 +16,7 @@ import keli.slurp_gphoto2 as sg
 import pyudev
 import os
 from ma_cli import data_models
+import fold_ui.keyling as keyling
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -24,6 +25,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 from kivy.animation import Animation
+from kivy.uix.scrollview import ScrollView
 
 r_ip, r_port = data_models.service_connection()
 binary_r = redis.StrictRedis(host=r_ip, port=r_port)
@@ -43,8 +45,159 @@ class Device(object):
             settings["{}{}".format(prefix, k)] = v
         return settings
 
+@attr.s
+class Conditional(object):
+    name = attr.ib(default="")
+    device = attr.ib(default="")
+    pre_contents = attr.ib(default=attr.Factory(list))
+    set_contents = attr.ib(default=attr.Factory(dict))
+    post_contents = attr.ib(default=attr.Factory(list))
+    # device may or may not be included in keyname
+    # settings:pre:foo:<device?>:127.0.0.1:6379 #list of keyling scripts
+    # settings:set:foo:<device?>:127.0.0.1:6379 #hash of key:values to set
+    # settings:post:foo:<device?>:127.0.0.1:6379 #list of keyling scripts
+
+    def keys(self, remove_only=False):
+        db_port = redis_conn.connection_pool.connection_kwargs["port"]
+        db_host = redis_conn.connection_pool.connection_kwargs["host"]
+        self.key_template = "settings:{step}:{name}:{device}:{host}:{port}"
+        template_values = {"name" : self.name,
+                         "device" : self.device,
+                         "host" : db_host,
+                         "port" : db_port}
+        for step in ["pre", "set", "post"]:
+            template_values.update({"step" : step})
+            key_name = self.key_template.format_map(template_values)
+            contents = getattr(self, step + "_contents")
+            redis_conn.delete(key_name)
+            if not remove_only:
+                if isinstance(contents, list):
+                    # only write nonempty values
+                    if contents:
+                        try:
+                            redis_conn.lpush(key_name, *contents)
+                        except Exception as ex:
+                            print(ex)
+                elif isinstance(contents, dict):
+                    # only write nonempty values
+                    if contents:
+                        try:
+                            redis_conn.hmset(key_name, contents)
+                        except Exception as ex:
+                            print(ex)
+
+class ConditionItem(BoxLayout):
+    def __init__(self, *args, parent_device=None, **kwargs):
+        self.orientation = "vertical"
+        self.parent_device = parent_device
+        self.height = 300
+        self.size_hint_y = None
+        super(ConditionItem, self).__init__()
+        self.conditional = Conditional()
+        self.top_container = BoxLayout(size_hint_y=1)
+        self.env_container = BoxLayout(orientation="vertical")
+        self.set_container = BoxLayout(orientation="vertical")
+        self.post_container = BoxLayout(orientation="vertical", size_hint_y=None, height=60)
+        self.top_container.add_widget(self.env_container)
+        self.top_container.add_widget(self.set_container)
+        self.name_input = TextInput(hint_text="name", multiline=False, height=30, size_hint_y=None)
+        self.name_input.bind(on_text_validate=lambda widget: setattr(self.conditional, "name", widget.text))
+        self.add_widget(self.name_input)
+        self.add_widget(self.top_container)
+        self.add_widget(self.post_container)
+        store_button = Button(text="store", height=30, size_hint_y=None)
+        store_button.bind(on_press=lambda widget: self.store())
+        self.add_widget(store_button)
+        remove_button = Button(text="remove", height=30, size_hint_y=None)
+        remove_button.bind(on_press=lambda widget: [self.conditional.keys(remove_only=True), self.parent.remove_widget(self)])
+
+        self.add_widget(remove_button)
+        self.update()
+
+    def update_from_conditional(self):
+        self.name_input.text = str(self.conditional.name)
+        self.env_input.text =  ""
+        if self.conditional.pre_contents:
+            self.env_input.text =  self.conditional.pre_contents[0]
+
+        self.set_input.text = ""
+        for k, v in self.conditional.set_contents.items():
+            self.set_input.text += "{} = {}\n".format(k, v)
+        self.post_input.text =  ""
+        if self.conditional.post_contents:
+            self.post_input.text =  self.conditional.post_contents[0]
+
+    def update(self):
+        self.env_container.clear_widgets()
+        self.set_container.clear_widgets()
+        self.env_input = TextInput(hint_text="add conditions (keyling)")
+        self.set_input = TextInput(hint_text="add settings (newline delimited 'foo = bar')")
+        self.post_input = TextInput(hint_text="add post calls (keyling)")
+        # on_validate does not call for multiline
+        # env_input.bind(on_text_validate=lambda widget: self.validate_keyling(widget.text, widget))
+        # set_input.bind(on_text_validate=lambda widget: self.validate_setting(widget.text, widget))
+        # post_input.bind(on_text_validate=lambda widget: self.validate_keyling(widget.text, widget))
+        self.env_container.add_widget(self.env_input)
+        self.set_container.add_widget(self.set_input)
+        preview_button = Button(text="preview", height=30, size_hint_y=None)
+        preview_button.bind(on_press=lambda widget: self.parent_device.preview(settings=self.validate_setting(self.set_input.text)))
+        self.set_container.add_widget(preview_button)
+        self.post_container.add_widget(self.post_input)
+
+    def store(self):
+        self.validate_keyling(self.env_input.text, set_on_valid="pre_contents", widget=self.env_input)
+        self.validate_setting(self.set_input.text, set_on_valid="set_contents", widget=self.set_input)
+        self.validate_keyling(self.post_input.text, set_on_valid="post_contents", widget=self.post_input)
+        self.conditional.keys()
+
+    def validate_keyling(self, text, set_on_valid=None, widget=None):
+        current_background = [1, 1, 1, 1]
+        try:
+            # valid
+            model = keyling.model(text)
+            if widget:
+                anim = Animation(background_color=[0,1,0,1], duration=0.5) + Animation(background_color=current_background, duration=0.5)
+                anim.start(widget)
+            if set_on_valid:
+                setattr(self.conditional, set_on_valid, [text])
+        except:
+            if widget:
+                anim = Animation(background_color=[1,0,0,1], duration=0.5) + Animation(background_color=current_background, duration=0.5)
+                anim.start(widget)
+
+    def validate_setting(self, text, set_on_valid=None, widget=None):
+        # simple parsing for
+        # key = value newline delimited
+        text = text.strip()
+        settings  = {}
+        current_background = [1, 1, 1, 1]
+        valid = False
+        for line in text.split("\n"):
+            line = line.strip()
+            try:
+                key, value = line.split("=")
+                key = key.strip()
+                value = value.strip()
+                valid = True
+                settings[key] = value
+            except:
+                valid = False
+
+        if valid:
+            if widget:
+                anim = Animation(background_color=[0,1,0,1], duration=0.5) + Animation(background_color=current_background, duration=0.5)
+                anim.start(widget)
+            if set_on_valid:
+                setattr(self.conditional, set_on_valid, settings)
+            return settings
+        else:
+            if widget:
+                anim = Animation(background_color=[1,0,0,1], duration=0.5) + Animation(background_color=current_background, duration=0.5)
+                anim.start(widget)
+
 class DeviceItem(BoxLayout):
     def __init__(self, *args, app=None, **kwargs):
+        self.orientation = "vertical"
         self.device = Device()
         self.app = app
         # by default open previewed with dzz
@@ -53,8 +206,69 @@ class DeviceItem(BoxLayout):
         self.setting_prefix = "SETTING_"
         super(DeviceItem, self).__init__()
         self.details_container = BoxLayout(orientation="vertical")
+        self.conditions_container = BoxLayout(orientation="vertical", size_hint_y=None, height=1000, minimum_height=200)
+        self.conditions_frame = BoxLayout(orientation="horizontal")
         self.settings_widgets = []
+        self.conditional_widgets = []
         self.add_widget(self.details_container)
+        create_condition_button = Button(text="new\ncond", width=60, size_hint_x=None)
+        create_condition_button.bind(on_press=lambda widget: self.add_conditional())
+        self.conditions_frame.add_widget(create_condition_button)
+        conditions_scroll = ScrollView(bar_width=20)
+        conditions_scroll.add_widget(self.conditions_container)
+
+        self.conditions_frame.add_widget(conditions_scroll)
+        self.add_widget(self.conditions_frame)
+
+    def update_conditions(self):
+        self.conditions_container.clear_widgets()
+        db_port = redis_conn.connection_pool.connection_kwargs["port"]
+        db_host = redis_conn.connection_pool.connection_kwargs["host"]
+        key_template = "settings:{step}:{name}:{device}:{host}:{port}"
+        template_values = {"name" : "*",
+                         "device" : self.device.details["uid"],
+                         "host" : db_host,
+                         "port" : db_port}
+
+        found = {}
+        for step in ["pre","set", "post"]:
+            template_values.update({"step" : step})
+            pattern = key_template.format_map(template_values)
+            print(pattern)
+            for found_keys in redis_conn.scan_iter(match=pattern):
+                _, _, name, uid, _, _= found_keys.split(":")
+                if not name in found:
+                    found[name] = {}
+                found[name][step] = found_keys
+
+        for conditional_name, step in found.items():
+            c = ConditionItem()
+            c.conditional.device = self.device.details["uid"]
+            c.parent_device = self
+            c.conditional.name = conditional_name
+            for step_name, step_key in step.items():
+                contents = None
+                try:
+                    contents = redis_conn.lrange(step_key, 0, -1)
+                except:
+                    try:
+                        contents = redis_conn.hgetall(step_key)
+                    except:
+                        pass
+                if contents:
+                    setattr(c.conditional, "{}_contents".format(step_name), contents)
+
+            c.update_from_conditional()
+            self.add_conditional(c)
+
+    def add_conditional(self, conditional=None):
+        if conditional is None:
+            conditional = ConditionItem()
+            conditional.conditional.device = self.device.details["uid"]
+            conditional.parent_device = self
+        self.conditions_container.add_widget(conditional)
+        self.conditions_container.parent.scroll_to(conditional)
+        self.conditions_container.height += conditional.height
 
     def update_details(self):
         self.details_container.clear_widgets()
@@ -133,6 +347,7 @@ class DeviceItem(BoxLayout):
         self.details_container.add_widget(load_state_from_row)
         self.details_container.add_widget(self.view_call_input)
         self.details_container.add_widget(preview_button)
+        self.update_conditions()
 
     def get_state(self):
         state = redis_conn.hgetall(self.state_key_template.format_map(self.device.details))
@@ -170,16 +385,19 @@ class DeviceItem(BoxLayout):
         if not self.view_call_input.text:
             self.view_call_input.text = self.default_view_call
 
-    def preview(self):
-        for widget in self.settings_widgets:
-            self.set_device_setting(widget.attribute, widget.text, widget)
+    def preview(self, settings=None):
+        if settings is None:
+            for widget in self.settings_widgets:
+                self.set_device_setting(widget.attribute, widget.text, widget)
+            settings = self.device.settings
         # apply settings
-        for setting, setting_value in self.device.settings.items():
+        for setting, setting_value in settings.items():
             if setting_value:
+                print(setting, setting_value, self.device.details)
                 try:
                     self.app.device_classes[self.device.details["discovery"]].set_setting(self.device.details, setting, setting_value)
                 except Exception as ex:
-                    print(ex)
+                    print("setting: ", ex)
         # call may result in: [-108] File not found
         # if usb address has changed
         #
