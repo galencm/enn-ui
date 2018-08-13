@@ -64,9 +64,14 @@ class DeviceItem(BoxLayout):
         if self.device.connected:
             connected_color = [0, 1, 0, 1]
             connected_text = "connected"
+        status_row = BoxLayout()
         connected_button = Button(text=connected_text, background_color=connected_color, height=30, size_hint_y=None)
         connected_button.bind(on_press=lambda widget: self.app.update_devices())
-        self.details_container.add_widget(connected_button)
+        remove_button = Button(text="clear", height=30, size_hint_y=None)
+        remove_button.bind(on_press=lambda widget: [self.parent.remove_widget(self)])
+        status_row.add_widget(connected_button)
+        status_row.add_widget(remove_button)
+        self.details_container.add_widget(status_row)
 
         # device information
         for k, v in self.device.details.items():
