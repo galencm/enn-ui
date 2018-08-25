@@ -18,6 +18,8 @@ pip3 install --editable ./ --user --process-dependency-links
 
 ## Usage
 
+Note: run `enn-db` once on a fresh redis database to store configurations for `enn-dev`
+
 **enn-dev**
 
 _discover and configure devices_
@@ -28,7 +30,7 @@ enn-dev --size=1500x800 -- --db-port 6379 --db-host 127.0.0.1
 
 **enn-db**
 
-_load device configurations (such as chdk propsets) into the database to be used by `enn-dev`_
+_load packaged device configurations (such as chdk propsets) into the database to be used by `enn-dev`_
 
 ```
 enn-db --db-port 6379 --db-host 127.0.0.1
