@@ -439,6 +439,8 @@ class DevApp(App):
     def build(self):
         root = BoxLayout()
         self.device_container = BoxLayout()
+        empty_notice_widget = Label(text="no devices. plug something in")
+        self.device_container.empty_notice = empty_notice_widget
         root.add_widget(self.device_container)
         self.update_env_values()
         self.load_session()
@@ -459,7 +461,14 @@ class DevApp(App):
         usb_event_thread.daemon = True
         usb_event_thread.start()
         self.update_devices()
+        self.placeholder()
         return root
+
+    def placeholder(self):
+        self.device_container.remove_widget(self.device_container.empty_notice)
+
+        if not self.device_container.children:
+            self.device_container.add_widget(self.device_container.empty_notice)
 
     def usb_events(self):
         context = pyudev.Context()
@@ -478,6 +487,8 @@ class DevApp(App):
 
     def update_devices(self):
         discovered = []
+        self.device_container.remove_widget(self.device_container.empty_notice)
+
         for name, device_class in self.device_classes.items():
             discovered.extend(device_class.discover())
 
@@ -538,7 +549,7 @@ class DevApp(App):
 
         # store devices so unfound will show up
         # on restart
-        for device in [child.device for child in self.device_container.children]:
+        for device in [child.device for child in self.device_container.children if hasattr(child, "device")]:
             dev =  etree.Element("device")
             for k, v in device.details.items():
                 try:
