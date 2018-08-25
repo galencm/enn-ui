@@ -18,8 +18,28 @@ pip3 install --editable ./ --user --process-dependency-links
 
 ## Usage
 
+**enn-dev**
+
+_discover and configure devices_
+
 ```
-enn-ui --size=1500x800
+enn-dev --size=1500x800 -- --db-port 6379 --db-host 127.0.0.1
+```
+
+**enn-db**
+
+_load device configurations (such as chdk propsets) into the database to be used by `enn-dev`_
+
+```
+enn-db --db-port 6379 --db-host 127.0.0.1
+```
+
+**enn-env**
+
+_view and modify machinic light environment values_
+
+```
+enn-env --size=1500x800 -- --db-port 6379 --db-host 127.0.0.1
 ```
 
 ## Contributing
