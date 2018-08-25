@@ -513,15 +513,18 @@ class DevApp(App):
     def load_session(self):
         expanded_path = os.path.expanduser(self.session_save_path)
         file = os.path.join(expanded_path, self.session_save_filename)
-        xml = etree.parse(file)
-        for session in xml.xpath('//session'):
-            for device in session.xpath('//device'):
-                device_widget = DeviceItem(app=self)
-                device_widget.device.details = device.attrib
-                for settings in session.xpath('//settings'):
-                    device_widget.device.settings = settings.attrib
-                device_widget.update_details()
-                self.device_container.add_widget(device_widget)
+        try:
+            xml = etree.parse(file)
+            for session in xml.xpath('//session'):
+                for device in session.xpath('//device'):
+                    device_widget = DeviceItem(app=self)
+                    device_widget.device.details = device.attrib
+                    for settings in session.xpath('//settings'):
+                        device_widget.device.settings = settings.attrib
+                    device_widget.update_details()
+                    self.device_container.add_widget(device_widget)
+        except OSError as ex:
+            pass
 
     def save_session(self):
         expanded_path = os.path.expanduser(self.session_save_path)
