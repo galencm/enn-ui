@@ -16,7 +16,8 @@ cd enn-ui/
 pip3 install --editable ./ --user --process-dependency-links
 ```
 
-Setup linting and formatting git commit hooks
+Setup linting and formatting git commit hooks:
+
 ```
 cd enn-ui
 pre-commit install
