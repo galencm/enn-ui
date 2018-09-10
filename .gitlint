@@ -1,12 +1,8 @@
-[general]
-#ignore=B6
-debug=True
-
-[T1]
+[title-max-length]
 line-length=50
 
-[B1]
+[body-max-line-length]
 line-length=60
 
 [body-min-length]
-min-length=5
+min-length=9
