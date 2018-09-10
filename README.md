@@ -16,6 +16,13 @@ cd enn-ui/
 pip3 install --editable ./ --user --process-dependency-links
 ```
 
+Setup linting and formatting git commit hooks
+```
+cd enn-ui
+pre-commit install
+pre-commit install -t commit-msg
+```
+
 ## Usage
 
 Note: run `enn-db` once on a fresh redis database to store configurations for `enn-dev`

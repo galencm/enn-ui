@@ -1,0 +1,12 @@
+[general]
+#ignore=B6
+debug=True
+
+[T1]
+line-length=50
+
+[B1]
+line-length=60
+
+[body-min-length]
+min-length=5
