@@ -21,7 +21,6 @@ r_ip, r_port = data_models.service_connection()
 binary_r = redis.StrictRedis(host=r_ip, port=r_port)
 redis_conn = redis.StrictRedis(host=r_ip, port=r_port, decode_responses=True)
 
-
 class EnvApp(App):
     def __init__(self, *args, **kwargs):
         # store kwargs to passthrough
@@ -29,7 +28,7 @@ class EnvApp(App):
         if kwargs["db_host"] and kwargs["db_port"]:
             global binary_r
             global redis_conn
-            db_settings = {"host": kwargs["db_host"], "port": kwargs["db_port"]}
+            db_settings = {"host" :  kwargs["db_host"], "port" : kwargs["db_port"]}
             binary_r = redis.StrictRedis(**db_settings)
             redis_conn = redis.StrictRedis(**db_settings, decode_responses=True)
 
@@ -45,13 +44,9 @@ class EnvApp(App):
         root.add_widget(self.env_container)
         self.update_env_values()
         self.db_event_subscription = redis_conn.pubsub()
-        self.db_event_subscription.psubscribe(
-            **{"__keyspace@0__:*": self.handle_db_events}
-        )
+        self.db_event_subscription.psubscribe(**{'__keyspace@0__:*': self.handle_db_events})
         # add thread to pubsub object to stop() on exit
-        self.db_event_subscription.thread = self.db_event_subscription.run_in_thread(
-            sleep_time=0.001
-        )
+        self.db_event_subscription.thread = self.db_event_subscription.run_in_thread(sleep_time=0.001)
         return root
 
     def update_env_values(self):
@@ -64,15 +59,9 @@ class EnvApp(App):
             key = Label(text=str(k))
             value = TextInput(text=str(v), multiline=False)
             update = Button(text="update")
-            update.bind(
-                on_press=lambda widget, key=k, value=value: redis_conn.hset(
-                    self.env_key, key, value.text
-                )
-            )
+            update.bind(on_press=lambda widget, key=k, value=value: redis_conn.hset(self.env_key, key, value.text))
             remove = Button(text="remove")
-            remove.bind(
-                on_press=lambda widget, key=k: redis_conn.hdel(self.env_key, key)
-            )
+            remove.bind(on_press=lambda widget, key=k: redis_conn.hdel(self.env_key, key))
 
             row.add_widget(key)
             row.add_widget(value)
@@ -80,20 +69,16 @@ class EnvApp(App):
             row.add_widget(remove)
             self.env_container.add_widget(row)
         create_row = BoxLayout()
-        create_field = TextInput(hint_text="create field", multiline=False)
+        create_field =  TextInput(hint_text="create field", multiline=False)
         create_field_value = TextInput(hint_text="field value", multiline=False)
         create_button = Button(text="create")
-        create_button.bind(
-            on_press=lambda widget, key=create_field, value=create_field_value: redis_conn.hset(
-                self.env_key, key.text, value.text
-            )
-        )
+        create_button.bind(on_press=lambda widget, key=create_field, value=create_field_value: redis_conn.hset(self.env_key, key.text, value.text))
         for widget in (create_field, create_field_value, create_button):
             create_row.add_widget(widget)
         self.env_container.add_widget(create_row)
 
     def handle_db_events(self, message):
-        msg = message["channel"].replace("__keyspace@0__:", "")
+        msg = message["channel"].replace("__keyspace@0__:","")
         if msg in (self.env_key):
             Clock.schedule_once(lambda dt: self.update_env_values(), .1)
 
@@ -105,21 +90,18 @@ class EnvApp(App):
         self.db_event_subscription.thread.stop()
         App.get_running_app().stop()
 
-
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db-key", help="db hash key")
-    parser.add_argument("--db-key-field", help="db hash field")
+    parser.add_argument("--db-key",  help="db hash key")
+    parser.add_argument("--db-key-field",  help="db hash field")
 
-    parser.add_argument("--db-host", help="db host ip, requires use of --db-port")
-    parser.add_argument(
-        "--db-port", type=int, help="db port, requires use of --db-host"
-    )
+    parser.add_argument("--db-host",  help="db host ip, requires use of --db-port")
+    parser.add_argument("--db-port", type=int, help="db port, requires use of --db-host")
     args = parser.parse_args()
 
     if bool(args.db_host) != bool(args.db_port):
         parser.error("--db-host and --db-port values are both required")
 
     app = EnvApp(**vars(args))
-    # atexit.register(app.save_session)
+    #atexit.register(app.save_session)
     app.run()
