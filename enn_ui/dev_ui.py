@@ -183,8 +183,8 @@ class ConditionItem(BoxLayout):
     def validate_keyling(self, text, set_on_valid=None, widget=None):
         current_background = [1, 1, 1, 1]
         try:
-            # valid
-            model = keyling.model(text)
+            # validate model
+            keyling.model(text)
             if widget:
                 anim = Animation(
                     background_color=[0, 1, 0, 1], duration=0.5
@@ -192,7 +192,7 @@ class ConditionItem(BoxLayout):
                 anim.start(widget)
             if set_on_valid:
                 setattr(self.conditional, set_on_valid, [text])
-        except:
+        except Exception as ex:
             if widget:
                 anim = Animation(
                     background_color=[1, 0, 0, 1], duration=0.5
@@ -214,7 +214,7 @@ class ConditionItem(BoxLayout):
                 value = value.strip()
                 valid = True
                 settings[key] = value
-            except:
+            except Exception as ex:
                 valid = False
 
         if valid:
@@ -280,7 +280,7 @@ class DeviceItem(BoxLayout):
             print(pattern)
             for found_keys in redis_conn.scan_iter(match=pattern):
                 _, _, name, uid, _, _ = found_keys.split(":")
-                if not name in found:
+                if name not in found:
                     found[name] = {}
                 found[name][step] = found_keys
 
@@ -293,10 +293,10 @@ class DeviceItem(BoxLayout):
                 contents = None
                 try:
                     contents = redis_conn.lrange(step_key, 0, -1)
-                except:
+                except Exception as ex:
                     try:
                         contents = redis_conn.hgetall(step_key)
-                    except:
+                    except Exception as ex:
                         pass
                 if contents:
                     setattr(c.conditional, "{}_contents".format(step_name), contents)
@@ -349,7 +349,7 @@ class DeviceItem(BoxLayout):
         # see enn-db and reference.xml
         try:
             # incorrect keys will be stored/reloaded from xml
-            if not "scripts" in self.device.details:
+            if "scripts" not in self.device.details:
                 self.device.details["scripts"] = redis_conn.hget(
                     "device:script_lookup", self.device.details["name"]
                 )
@@ -384,7 +384,7 @@ class DeviceItem(BoxLayout):
         self.view_call_input = TextInput(
             text=self.default_view_call, multiline=False, height=30, size_hint_y=None
         )
-        self.view_call_input.bind(on_text_validate=lambda widget: check_call())
+        self.view_call_input.bind(on_text_validate=lambda widget: self.check_call())
         preview_button = Button(
             text="preview",
             background_color=connected_color,
@@ -610,7 +610,7 @@ class DevApp(App):
                         child.update_details()
 
     def update_env_values(self):
-        env_values = redis_conn.hgetall(self.env_key)
+        redis_conn.hgetall(self.env_key)
 
     def handle_db_events(self, message):
         msg = message["channel"].replace("__keyspace@0__:", "")

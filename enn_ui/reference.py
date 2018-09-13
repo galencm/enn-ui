@@ -23,7 +23,6 @@ def populate_db(db_host, db_port, xml_files=None, verbose=False):
             pathlib.PurePath(pathlib.Path(__file__).parents[0], "reference.xml")
         ]
 
-    binary_r = redis.StrictRedis(host=r_ip, port=r_port)
     redis_conn = redis.StrictRedis(host=r_ip, port=r_port, decode_responses=True)
     device_script_lookup_key = "device:script_lookup"
     script_lookup_key = "scripts:{}"
